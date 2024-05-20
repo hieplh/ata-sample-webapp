@@ -34,6 +34,10 @@ class UserAccount(BaseModel):
     identity_type: str
 
 
+class UserAccountRequest(UserAccount):
+    images: list[str] = []
+
+
 mail_body = """
 <table
   style="
@@ -387,12 +391,15 @@ mail_body = """
 def route(app: FastAPI):
     @app.post("/register", status_code=HTTPStatus.CREATED)
     async def register(db: Annotated[Session, Depends(get_db)], background_tasks: BackgroundTasks,
-                       request: Annotated[UserAccount, Depends(UserAccount.as_form)],
-                       images: list[UploadFile | None] = None):
+                       request: UserAccountRequest):
         try:
             # create account
+            images = request.images
+            request.__delattr__('images')
             request.password = encrypt_password(request.password)
             user_account = models.UserAccount(**request.model_dump())
+            user_account.department = 'IT Department'
+            user_account.role = 'developer'
             db.add(user_account)
             db.flush()
 
@@ -418,7 +425,8 @@ def route(app: FastAPI):
             raise HTTPException(status_code=400, detail=f"{e}")
 
     @app.get("/resend-email/{username}")
-    async def resend_email(db: Annotated[Session, Depends(get_db)], background_tasks: BackgroundTasks, username: str):
+    async def resend_email(db: Annotated[Session, Depends(get_db)], background_tasks: BackgroundTasks,
+                           username: str):
         try:
             active_user = db.query(models.ActiveUser).filter(models.ActiveUser.username == username,
                                                              models.ActiveUser.status != models.ActiveUserType.active) \
@@ -439,7 +447,7 @@ def route(app: FastAPI):
 
     @app.get("/active_user/{username}/{otp}")
     def active_user(db: Annotated[Session, Depends(get_db)], background_tasks: BackgroundTasks, username: str,
-                          otp: int):
+                    otp: int):
         try:
             err_msg = ""
             user_account = db.query(models.UserAccount).filter(models.UserAccount.username == username).first()

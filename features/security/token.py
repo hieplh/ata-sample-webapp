@@ -95,6 +95,7 @@ async def validate_token(token: Annotated[str, Depends(oauth2_scheme)], db: Sess
 
         if errMsg:
             db.delete(user_token)
+            db.commit()
             raise HTTPException(status_code=403, detail=f"{errMsg}")
 
         db.commit()

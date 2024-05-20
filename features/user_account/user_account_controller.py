@@ -31,9 +31,14 @@ class UserAccount(BaseModel):
     status: str | None = None
     identity: str | None = None
     identity_type: str | None = None
+    enable_2_verification: bool | None = None
 
 
 def route(app: FastAPI):
+    @app.post("/me", response_model=schemas.UserAccount)
+    async def me(current_user: Annotated[Token, Depends(validate_token)], db: Annotated[Session, Depends(get_db)]):
+        return db.get_one(models.UserAccount, current_user.user_id)
+
     @app.get("/user/{data}", response_model=schemas.UserAccount | None)
     async def get(current_user: Annotated[Token, Depends(validate_token)], db: Annotated[Session, Depends(get_db)],
                   data: str):
@@ -59,10 +64,10 @@ def route(app: FastAPI):
             for var, value in vars(request).items():
                 if var == "password" and value:
                     value = encrypt_password(str(value))
-                setattr(user, var, value) if value else None
+                setattr(user, var, value) if value is not None else None
 
             # store images
-            await user_account_service.store_images(db, current_user.username, images)
+            await user_account_service.store_images(db, current_user.username, images if images is not None else [])
 
             db.commit()
             db.refresh(user)

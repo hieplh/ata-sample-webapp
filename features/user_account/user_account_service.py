@@ -1,12 +1,14 @@
+import base64
 import json
 import os
+import random
 import smtplib
 import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import bcrypt
-import httpx
+import requests
 from fastapi import UploadFile
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
@@ -40,41 +42,42 @@ def get_filename_and_content_type_from_upload(upload_images: list[UploadFile | N
     return result
 
 
-async def register_identity_with_service(user_account: models.UserAccount,
-                                         images: list[tuple[str, str]],
-                                         retry_count: int = 0):
+def register_identity_with_service(user_account: models.UserAccount,
+                                   images: list[tuple[str, str]],
+                                   retry_count: int = 0):
+    if len(images) == 0:
+        return
+
     try:
+        url = f"{os.getenv('FACE_HOST')}/service/face_recognize/register"
         face_token = os.getenv("FACE_TOKEN")
-        headers = jsonable_encoder(
-            {
-                "Authorization": f"Bearer {face_token}"
-            }
-        )
+        headers = {"Authorization": f"Bearer {face_token}"}
 
         # init data content
         data = user_account.as_dict()
         data.__delitem__("password") if data.get("password") else None
 
         # init face images
-        folder = "resources/images/" + data.get("username")
+        folder = "resources/images/"
         files = [
             ("files", (
                 image[0], open(folder + "/" + image[0], mode='rb'),
                 image[1])) for image in images
         ] if len(images) else []
 
-        response = httpx.post(os.getenv("FACE_HOST") + "/service/face_recognize/register", headers=headers,
-                              files=files,
-                              data={"identification_id": data.get("username"),
-                                    "content": json.dumps(data)}) \
-            .raise_for_status()
-
+        response = (requests.post(url,
+                                  headers=headers,
+                                  files=files,
+                                  data={"identification_id": data.get("username"),
+                                        "content": json.dumps(data)}
+                                  )
+                    )
         return response.json()
     except Exception as e:
         print(f"register_identity_with_service: {e}")
         # retry make http call if failed, max 3 times
         if retry_count < 3:
-            await register_identity_with_service(user_account, images, retry_count + 1)
+            register_identity_with_service(user_account, images, retry_count + 1)
         else:
             raise e
 
@@ -87,9 +90,9 @@ async def delete_identity_with_service(user_account: models.UserAccount, retry_c
                 "Authorization": f"Bearer {face_token}"
             }
         )
-        response = httpx.delete(os.getenv("FACE_HOST") + "/service/face_recognize/" + user_account.username,
-                                headers=headers) \
-            .raise_for_status()
+        response = (requests.delete(os.getenv("FACE_HOST") + "/service/face_recognize/" + user_account.username,
+                                    headers=headers)
+                    )
 
         return response.json()
     except Exception as e:
@@ -110,12 +113,15 @@ async def identity_with_service(image: UploadFile, retry_count: int = 0):
             }
         )
         files = {"file": (image.filename, await image.read(), image.content_type)}
-        response = httpx.post(os.getenv("FACE_HOST") + "/service/face_recognize/identify",
-                              headers=headers,
-                              files=files) \
-            .raise_for_status()
-
+        response = (requests.post(os.getenv("FACE_HOST") + "/service/face_recognize/identify",
+                                  headers=headers,
+                                  files=files)
+                    )
+        response.raise_for_status()
         return response.json()
+    except requests.exceptions.HTTPError as e:
+        print(f"identity_with_service: {e}")
+        return None
     except Exception as e:
         print(f"identity_with_service: {e}")
         # retry make http call if failed, max 3 times
@@ -125,24 +131,26 @@ async def identity_with_service(image: UploadFile, retry_count: int = 0):
             raise e
 
 
-async def store_images(dbConnection: Session, username: str, files: list[UploadFile | None] = None):
-    if files is not None:
-        path = "resources/images"
-        for file in files:
-            if file.size == 0:
-                continue
+async def store_images(dbConnection: Session, username: str, images=None):
+    if images is None:
+        images = []
 
-            # insert image to images
-            dbConnection.add(models.UserImage(username=username, image=file.filename, image_type=file.content_type))
+    path = "resources/images"
+    for image in images:
+        image_arr = image.split(",")
+        image_header = image_arr[0]  # image_header example: data:image/jpeg;base64
+        image_content = image_arr[1]
+        # extract content_type from image_header
+        image_content_type = image_header.split(";")[0].split("/")[1]
+        filename = f"{username}_{random.randint(0, 9999)}.{image_content_type}"
+        final_path = path + "/" + filename
 
-            # create folder to store images of project_id and service_id
-            folder_name = username
-            if not os.path.exists(path + "/" + folder_name):
-                os.makedirs(path + "/" + folder_name)
+        with open(final_path, 'wb') as f:
+            # convert string to bytes to create image
+            f.write(base64.b64decode(image_content))
 
-            # store image to sub-folder above
-            with open(os.path.join(path, folder_name, file.filename), 'wb') as new_image_file:
-                new_image_file.write(await file.read())
+        # insert image to images
+        dbConnection.add(models.UserImage(username=username, image=filename, image_type=image_content_type))
 
 
 def delete_images(user_images: list[models.UserImage]):
@@ -163,7 +171,7 @@ def delete_images(user_images: list[models.UserImage]):
                 os.rmdir(final_folder)
 
 
-async def confirm_registration(user_username: str, otp: int, receiver_email: str, subject: str, body: str):
+def confirm_registration(user_username: str, otp: int, receiver_email: str, subject: str, body: str):
     sender_email = os.getenv('MAIL_SENDER')
     username = os.getenv('MAIL_USERNAME')
     password = os.getenv('MAIL_PASSWORD')
@@ -183,8 +191,11 @@ async def confirm_registration(user_username: str, otp: int, receiver_email: str
     message.attach(MIMEText(body, "html"))
 
     # Log in to server using secure context and send email
-    context = ssl.create_default_context()
-    with smtplib.SMTP(os.getenv("MAIL_HOST"), int(os.getenv("MAIL_PORT"))) as server:
-        server.starttls(context=context)
-        server.login(username, password)
-        server.sendmail(sender_email, receiver_email, message.as_string())
+    try:
+        context = ssl.create_default_context()
+        with smtplib.SMTP(os.getenv("MAIL_HOST"), int(os.getenv("MAIL_PORT"))) as server:
+            server.starttls(context=context)
+            server.login(username, password)
+            server.sendmail(sender_email, receiver_email, message.as_string())
+    except Exception as e:
+        print(f"confirm_registration | Error: {e}")

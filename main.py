@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.encoders import jsonable_encoder
 from starlette import status
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 
 import router
@@ -15,6 +16,13 @@ load_dotenv()
 
 models.Base.metadata.create_all(bind=engine)
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 router.route_all(app)
 

@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Annotated
 
-from fastapi import FastAPI, status, HTTPException, Depends, UploadFile
+from fastapi import FastAPI, status, HTTPException, Depends, UploadFile, Form
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -25,7 +25,7 @@ class LogoutRequest(BaseModel):
 
 
 def route(app: FastAPI):
-    @app.post("/login", response_model=schemas.UserToken)
+    @app.post("/login", response_model=schemas.UserToken | dict)
     async def login(db: Annotated[Session, Depends(get_db)], user: LoginRequest):
         try:
             user_account = db.query(UserAccount).filter(UserAccount.username == user.username,
@@ -36,6 +36,11 @@ def route(app: FastAPI):
                 if not check_password(user.password, user_account.password):
                     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                         detail="Username or Password is incorrect")
+
+                # check if user is enabled 2 verification or not
+                # if enabled, return nothing, returned token will be depended on login_by_face
+                if user_account.enable_2_verification:
+                    return {}
 
                 # fetch current token if existed
                 user_token = db.query(UserToken).filter(UserToken.username == user.username,
@@ -59,7 +64,7 @@ def route(app: FastAPI):
             raise e
 
     @app.post("/login/face", response_model=schemas.UserToken)
-    async def login_by_identification(db: Annotated[Session, Depends(get_db)], face_image: UploadFile):
+    async def login_by_identification(db: Annotated[Session, Depends(get_db)], username: Annotated[str, Form()], face_image: UploadFile):
         response_identity = await user_account_service.identity_with_service(face_image)
         if response_identity is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Face identification is incorrect")

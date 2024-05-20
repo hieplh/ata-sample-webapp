@@ -37,6 +37,7 @@ class UserAccount(BaseModel):
     status: str
     identity: str
     identity_type: str
+    enable_2_verification: bool
     created: datetime
 
 
@@ -60,6 +61,7 @@ class FormReason(BaseModel):
     name: str
     description: str | None = None
     productivity: str | None = None
+    form_type: str
 
 
 class FormDetail(BaseModel):
@@ -69,8 +71,6 @@ class FormDetail(BaseModel):
     to_time: time
     from_date: date
     to_date: date
-    reason: str
-    productivity: str
 
 
 class Form(BaseModel):
@@ -78,10 +78,12 @@ class Form(BaseModel):
     form_status: str
     form_phase: str
     form_type: str
+    reason: int
+    productivity: str
     department: str
     role: str
-    created_user: str
-    assigned_user: str
+    created_user_obj: UserAccount
+    assigned_user_obj: UserAccount
     description: str | None = None
     note: str | None = None
     created: datetime

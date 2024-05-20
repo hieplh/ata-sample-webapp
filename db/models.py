@@ -2,7 +2,7 @@ import enum
 from datetime import datetime, date, time
 from typing import Optional, List
 
-from sqlalchemy import Integer, DateTime, Enum, ForeignKey, Time, Date
+from sqlalchemy import Integer, DateTime, Enum, ForeignKey, Time, Date, Boolean
 from sqlalchemy import String
 from sqlalchemy.orm import DeclarativeBase, relationship, mapped_column, Mapped
 
@@ -97,6 +97,7 @@ class UserAccount(Base):
     status: Mapped[str] = mapped_column(Enum(UserType, name="user_type"), nullable=False)
     identity: Mapped[str] = mapped_column(String, nullable=False, index=True, unique=True)
     identity_type: Mapped[str] = mapped_column(Enum(IdentityType, name="identity_type"), nullable=False)
+    enable_2_verification: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -150,15 +151,15 @@ class FormProductivity(enum.Enum):
 
 
 class FormStatus(enum.Enum):
-    pending = "pending"
-    approved = "approved"
-    cancelled = "cancelled"
+    pending = "Chờ duyệt"
+    approved = "Đã duyệt"
+    cancelled = "Không duyệt"
 
 
 class FormPhase(enum.Enum):
-    director_approved = "director_approved"
-    authorized_person_approved = "authorized_person_approved"
-    direct_manager_approved = "direct_manager_approved"
+    director_approved = "Director Approved"
+    authorized_person_approved = "Authorized Person Approved"
+    direct_manager_approved = "Direct Manager Approved"
 
 
 class FormType(enum.Enum):
@@ -179,7 +180,9 @@ class FormReason(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    productivity: Mapped[Optional[str]] = mapped_column(String, nullable=True, default=FormProductivity.no_productivity.name)
+    productivity: Mapped[Optional[str]] = mapped_column(String, nullable=True,
+                                                        default=FormProductivity.no_productivity.name)
+    form_type: Mapped[str] = mapped_column(String, nullable=False)
 
 
 class Form(Base):
@@ -189,15 +192,21 @@ class Form(Base):
                                              default=FormStatus.pending)
     form_phase: Mapped[str] = mapped_column(Enum(FormPhase, name="form_phase"), nullable=False)
     form_type: Mapped[str] = mapped_column(Enum(FormType, name="form_type"), nullable=False)
+    reason: Mapped[int] = mapped_column(Integer, ForeignKey("form_reason.id", onupdate='CASCADE'),
+                                        nullable=False)
+    form_reason: Mapped[FormReason] = relationship("FormReason", foreign_keys=[reason])
+    productivity: Mapped[str] = mapped_column(Enum(FormProductivity), nullable=False)
     department: Mapped[str] = mapped_column(String, ForeignKey("department.name", onupdate='CASCADE'),
                                             nullable=False)
     role: Mapped[str] = mapped_column(String, ForeignKey("role.name", onupdate='CASCADE'),
                                       nullable=False)
     created_user: Mapped[str] = mapped_column(String, ForeignKey("user_account.username", onupdate='CASCADE'),
                                               nullable=False)
+    created_user_obj: Mapped[UserAccount] = relationship("UserAccount", foreign_keys=[created_user])
     assigned_user: Mapped[str] = mapped_column(String,
                                                ForeignKey("user_account.username", onupdate='CASCADE'),
                                                nullable=False)
+    assigned_user_obj: Mapped[UserAccount] = relationship("UserAccount", foreign_keys=[assigned_user])
     description: Mapped[str] = mapped_column(String, nullable=True)
     note: Mapped[str] = mapped_column(String, nullable=True)
     created: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
@@ -213,5 +222,3 @@ class FormDetail(Base):
     to_time: Mapped[time] = mapped_column(Time, nullable=False)
     from_date: Mapped[date] = mapped_column(Date, nullable=False)
     to_date: Mapped[date] = mapped_column(Date, nullable=False)
-    reason: Mapped[str] = mapped_column(String, nullable=False)
-    productivity: Mapped[str] = mapped_column(String, nullable=False)
