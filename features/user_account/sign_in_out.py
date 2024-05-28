@@ -70,7 +70,14 @@ def route(app: FastAPI):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Face identification is incorrect")
 
         try:
-            user_account = models.UserAccount(**json.loads(response_identity.get("content")))
+            user_account = db.query(UserAccount).filter(UserAccount.username == username,
+                                                        UserAccount.status == models.UserType.active) \
+                .first()
+
+            verified_user = response_identity.get("identification_id")
+            if user_account.username != verified_user:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Face identification is incorrect")
+
             # fetch current token if existed
             user_token = db.query(UserToken).filter(UserToken.username == user_account.username,
                                                     UserToken.expired_at > datetime.now()) \
