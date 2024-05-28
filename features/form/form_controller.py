@@ -97,8 +97,8 @@ def route(app: FastAPI):
                 """
 
         result = db.execute(text(query_statement)).mappings().fetchone()
-        response = {k: result[k] for k in result}
-        response['all'] = sum(result.values())
+        response = {k: result[k] if result[k] is not None else 0 for k in result}
+        response['all'] = sum(response.values())
         return response
 
     @app.get("/forms/{type}/{form_status}", response_model=AllFormsResponse)
