@@ -1,9 +1,22 @@
+import os
+
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from db import models
 
-SQLALCHEMY_DATABASE_URL = "postgresql://ata-demo-app:123456@localhost:5433/ata-demo-app"
+load_dotenv()
+
+# Access the environment variables
+db_username = os.getenv('DB_PORTGRES_USERNAME')
+db_password = os.getenv('DB_PORTGRES_PASSWORD')
+db_port = os.getenv('DB_PORTGRES_PORT')
+db_host = os.getenv('DB_PORTGRES_HOST')
+db_name = os.getenv('DB_PORTGRES_DBNAME')
+
+# Construct the database URL
+SQLALCHEMY_DATABASE_URL = f"postgresql://{db_username}:{db_password}@{db_host}:{db_port}/{db_name}"
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -21,8 +34,8 @@ def get_db():
 def init_department(target, connection, **kw):
     """ Init data the permission table. """
     connection.execute(text(
-        f"INSERT INTO {target.name} (name, description) VALUES "
-        f"('IT Department', 'Department for all IT staffs'); "
+        f"INSERT INTO {target.name} (name, description, created, last_updated) VALUES "
+        f"('IT Department', 'Department for all IT staffs', now(), now()); "
     ))
 
 
@@ -40,9 +53,9 @@ def init_permission(target, connection, **kw):
 def init_role(target, connection, **kw):
     """ Init data the permission table. """
     connection.execute(text(
-        f"INSERT INTO {target.name} (name, description) VALUES "
-        f"('developer', '', "
-        f"('test', '');"
+        f"INSERT INTO {target.name} (name, description, created, last_updated) VALUES "
+        f"('developer', '', now(), now()), "
+        f"('test', '', now(), now());"
     ))
 
 
@@ -51,8 +64,8 @@ def init_role_permission(target, connection, **kw):
     """ Init data the permission table. """
     connection.execute(text(
         f"INSERT INTO {target.name} (role, permission) VALUES "
-        f"('developer', 'READ', "
-        f"('developer', 'WRITE'),"
+        f"('developer', 'READ'), "
+        f"('developer', 'WRITE'), "
         f"('test', 'READ');"
     ))
 
