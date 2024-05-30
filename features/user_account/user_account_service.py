@@ -76,7 +76,7 @@ def register_identity_with_service(user_account: models.UserAccount,
     except Exception as e:
         print(f"register_identity_with_service: {e}")
         # retry make http call if failed, max 3 times
-        if retry_count < 3:
+        if retry_count < 1:
             register_identity_with_service(user_account, images, retry_count + 1)
         else:
             raise e
@@ -98,13 +98,13 @@ async def delete_identity_with_service(user_account: models.UserAccount, retry_c
     except Exception as e:
         print(f"delete_identity_with_service: {e}")
         # retry make http call if failed, max 3 times
-        if retry_count < 3:
+        if retry_count < 1:
             await delete_identity_with_service(user_account, retry_count + 1)
         else:
             raise e
 
 
-async def identity_with_service(image: UploadFile, retry_count: int = 0):
+async def identity_with_service(username: str, image: UploadFile, retry_count: int = 0):
     try:
         face_token = os.getenv("FACE_TOKEN")
         headers = jsonable_encoder(
@@ -112,10 +112,13 @@ async def identity_with_service(image: UploadFile, retry_count: int = 0):
                 "Authorization": f"Bearer {face_token}"
             }
         )
+        data = {"identification_id": username}
         files = {"file": (image.filename, await image.read(), image.content_type)}
         response = (requests.post(os.getenv("FACE_HOST") + "/service/face_recognize/identify",
                                   headers=headers,
-                                  files=files)
+                                  files=files,
+                                  data=data
+                                  )
                     )
         response.raise_for_status()
         return response.json()
@@ -125,7 +128,7 @@ async def identity_with_service(image: UploadFile, retry_count: int = 0):
     except Exception as e:
         print(f"identity_with_service: {e}")
         # retry make http call if failed, max 3 times
-        if retry_count < 3:
+        if retry_count < 1:
             await identity_with_service(image, retry_count + 1)
         else:
             raise e

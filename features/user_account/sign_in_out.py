@@ -1,4 +1,3 @@
-import json
 from datetime import datetime, timedelta
 from typing import Annotated
 
@@ -64,8 +63,9 @@ def route(app: FastAPI):
             raise e
 
     @app.post("/login/face", response_model=schemas.UserToken)
-    async def login_by_identification(db: Annotated[Session, Depends(get_db)], username: Annotated[str, Form()], face_image: UploadFile):
-        response_identity = await user_account_service.identity_with_service(face_image)
+    async def login_by_identification(db: Annotated[Session, Depends(get_db)], username: Annotated[str, Form()],
+                                      face_image: UploadFile):
+        response_identity = await user_account_service.identity_with_service(username, face_image)
         if response_identity is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Face identification is incorrect")
 

@@ -244,7 +244,7 @@ def route(app: FastAPI):
 
             is_enable_2_verification = db.get_one(models.UserAccount, current_user.user_id).enable_2_verification
             if is_enable_2_verification:
-                response_identity = await user_account_service.identity_with_service(image)
+                response_identity = await user_account_service.identity_with_service(current_user.username, image)
                 if response_identity is None:
                     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                         detail="Face id is not existed")
