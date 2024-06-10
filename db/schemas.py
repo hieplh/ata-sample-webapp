@@ -39,6 +39,7 @@ class UserAccount(BaseModel):
     identity_type: str
     enable_2_verification: bool
     created: datetime
+    last_updated: datetime
 
 
 class ActiveUser(BaseModel):
@@ -47,6 +48,14 @@ class ActiveUser(BaseModel):
     status: str
     expired_at: datetime
     attempts: int
+
+
+class UserImage(BaseModel):
+    id: int
+    username: str
+    image: str
+    image_type: str
+    created: datetime
 
 
 class UserToken(BaseModel):
@@ -79,6 +88,7 @@ class Form(BaseModel):
     form_phase: str
     form_type: str
     reason: int
+    form_reason: FormReason
     productivity: str
     department: str
     role: str

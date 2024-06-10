@@ -1,4 +1,5 @@
 import base64
+import io
 import json
 import os
 import random
@@ -9,11 +10,24 @@ from email.mime.text import MIMEText
 
 import bcrypt
 import requests
+from PIL import Image
 from fastapi import UploadFile
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from db import models
+
+path = "resources/images"
+
+
+def image_to_base64_png(image_path: str, image_type: str) -> str:
+    with Image.open(f"{path}/{image_path}") as img:
+        buffered = io.BytesIO()
+        img.save(buffered, format=image_type)
+        img_bytes = buffered.getvalue()
+
+    img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+    return img_base64
 
 
 def encrypt_password(password: str) -> str:
@@ -24,6 +38,29 @@ def check_password(password: str, encrypted_password: str) -> bool:
     return bcrypt.checkpw(password.encode('utf-8'), encrypted_password.encode('utf-8'))
 
 
+def extract_based64_encoded_image(username: str, encoded_image: str):
+    if len(encoded_image) == 0:
+        return None
+
+    image_arr = encoded_image.split(",")
+    image_header = image_arr[0]  # image_header example: data:image/jpeg;base64
+    image_content = image_arr[1]
+    # extract content_type from image_header
+    image_content_type = image_header.split(";")[0].split("/")[1]
+    return {"filename": f"{username}_{random.randint(0, 9999)}.{image_content_type}",
+            "image_header": image_header,
+            "image_content": image_content,
+            "image_content_type": image_content_type}
+
+
+def extract_based64_encoded_images(username: str, encoded_images: list[str]):
+    if len(encoded_images) == 0:
+        return []
+
+    images = []
+    return [images.append(extract_based64_encoded_image(username, image)) for image in encoded_images]
+
+
 def get_filename_and_content_type_from_model(user_images: list[models.UserImage]) -> list[tuple[str, str]]:
     return [(user_image.image,
              (
@@ -31,14 +68,20 @@ def get_filename_and_content_type_from_model(user_images: list[models.UserImage]
             for user_image in user_images] if len(user_images) else []
 
 
-def get_filename_and_content_type_from_upload(upload_images: list[UploadFile | None]) -> list[tuple[str, str]]:
+def get_filename_and_content_type_from_upload(upload_images: list[UploadFile | dict[str, int | None]]) -> list[
+    tuple[str, str]]:
     result = []
     if upload_images is not None:
         for file in upload_images:
-            if file.size == 0:
-                continue
+            if isinstance(file, UploadFile):
+                if file.size == 0:
+                    continue
 
-            result.append((file.filename, file.content_type))
+                result.append((file.filename, file.content_type))
+            elif isinstance(file, dict):
+                image = file["content"]
+                result.append((image["filename"], image["image_content_type"]))
+
     return result
 
 
@@ -113,7 +156,7 @@ async def identity_with_service(username: str, image: UploadFile, retry_count: i
             }
         )
         data = {"identification_id": username}
-        files = {"file": (image.filename, await image.read(), image.content_type)}
+        files = {"image": (image.filename, await image.read(), image.content_type)}
         response = (requests.post(os.getenv("FACE_HOST") + "/service/face_recognize/identify",
                                   headers=headers,
                                   files=files,
@@ -134,33 +177,52 @@ async def identity_with_service(username: str, image: UploadFile, retry_count: i
             raise e
 
 
-async def store_images(dbConnection: Session, username: str, images=None):
-    if images is None:
-        images = []
+def delete_image(fullpath_image: str | None = None, image_name: str | None = None):
+    if image_name is not None and len(image_name) > 0:
+        # delete image by its name
+        if os.path.exists(path):
+            os.remove(path + "/" + image_name)
 
-    path = "resources/images"
-    for image in images:
-        image_arr = image.split(",")
-        image_header = image_arr[0]  # image_header example: data:image/jpeg;base64
-        image_content = image_arr[1]
-        # extract content_type from image_header
-        image_content_type = image_header.split(";")[0].split("/")[1]
-        filename = f"{username}_{random.randint(0, 9999)}.{image_content_type}"
-        final_path = path + "/" + filename
+    if fullpath_image is not None and len(fullpath_image) > 0:
+        # delete image by its fullpath
+        if os.path.exists(fullpath_image):
+            os.remove(fullpath_image)
 
-        with open(final_path, 'wb') as f:
-            # convert string to bytes to create image
-            f.write(base64.b64decode(image_content))
 
-        # insert image to images
-        dbConnection.add(models.UserImage(username=username, image=filename, image_type=image_content_type))
+def store_image(dbConnection: Session, username: str, image=None):
+    if image is None:
+        return
+
+    final_path = path + "/" + image["filename"]
+
+    with open(final_path, 'wb') as f:
+        # convert string to bytes to create image
+        f.write(base64.b64decode(image["image_content"]))
+
+    # insert image to images
+    dbConnection.add(
+        models.UserImage(username=username, image=image["filename"],
+                         image_type=image["image_content_type"]))
+
+
+def update_image(dbConnection: Session, id: int, image=None):
+    if image is None:
+        return
+
+    final_path = path + "/" + image["filename"]
+
+    # delete the old image before insert new one
+    delete_image(fullpath_image=final_path)
+
+    with open(final_path, 'wb') as f:
+        # convert string to bytes to create image
+        f.write(base64.b64decode(image["image_content"]))
 
 
 def delete_images(user_images: list[models.UserImage]):
     if len(user_images) == 0:
         return
 
-    path = "resources/images"
     for user_image in user_images:
         folder_name = user_image.username
         final_folder = path + "/" + folder_name

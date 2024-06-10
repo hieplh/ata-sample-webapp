@@ -2,21 +2,24 @@ import re
 from http.client import HTTPException
 from typing import Annotated
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from starlette import status
 
-from config import as_form
 from db import models, schemas
 from db.database import get_db
 from features.security.token import Token, validate_token
 from features.user_account import user_account_service
-from features.user_account.user_account_service import encrypt_password, register_identity_with_service
+from features.user_account.user_account_service import encrypt_password
 
 
-@as_form
+class UpdateUserImageRequest(BaseModel):
+    id: int | None = None
+    content: str
+
+
 class UserAccount(BaseModel):
     username: str | None = None
     password: str | int | None = None
@@ -32,12 +35,22 @@ class UserAccount(BaseModel):
     identity: str | None = None
     identity_type: str | None = None
     enable_2_verification: bool | None = None
+    updated_images: list[UpdateUserImageRequest] | None = None
+    deleted_images: list[int] | None = None
 
 
 def route(app: FastAPI):
     @app.post("/me", response_model=schemas.UserAccount)
     async def me(current_user: Annotated[Token, Depends(validate_token)], db: Annotated[Session, Depends(get_db)]):
         return db.get_one(models.UserAccount, current_user.user_id)
+
+    @app.get("/user/images", response_model=list[schemas.UserImage])
+    async def get_images(current_user: Annotated[Token, Depends(validate_token)],
+                         db: Annotated[Session, Depends(get_db)]):
+        user_images = db.query(models.UserImage).filter(models.UserImage.username == current_user.username).all()
+        for user_image in user_images:
+            user_image.image = user_account_service.image_to_base64_png(user_image.image, user_image.image_type)
+        return user_images
 
     @app.get("/user/{data}", response_model=schemas.UserAccount | None)
     async def get(current_user: Annotated[Token, Depends(validate_token)], db: Annotated[Session, Depends(get_db)],
@@ -56,9 +69,13 @@ def route(app: FastAPI):
     @app.put("/user", response_model=schemas.UserAccount)
     async def update(current_user: Annotated[Token, Depends(validate_token)], db: Annotated[Session, Depends(get_db)],
                      background_tasks: BackgroundTasks,
-                     request: Annotated[UserAccount, Depends(UserAccount.as_form)],
-                     images: list[UploadFile | None] = None):
+                     request: UserAccount):
         try:
+            updated_images = request.updated_images
+            deleted_images = request.deleted_images
+            request.__delattr__("updated_images")
+            request.__delattr__("deleted_images")
+
             # accept id, email or identity to find identified user
             user = db.get_one(models.UserAccount, current_user.user_id)
             for var, value in vars(request).items():
@@ -67,15 +84,42 @@ def route(app: FastAPI):
                 setattr(user, var, value) if value is not None else None
 
             # store images
-            await user_account_service.store_images(db, current_user.username, images if images is not None else [])
+            if updated_images is not None and len(updated_images) > 0:
+                updated_images = [
+                    {
+                        "id": image.id,
+                        "content": user_account_service.extract_based64_encoded_image(
+                            current_user.username,
+                            image.content)
+                    }
+                    for
+                    image in updated_images]
+
+                for image in updated_images:
+                    if image["id"] is not None:
+                        user_image = db.get_one(models.UserImage, image["id"])
+                        image["content"]["filename"] = user_image.image
+                        user_account_service.update_image(db, image["id"], image["content"])
+                    else:
+                        user_account_service.store_image(db, current_user.username, image["content"])
+
+                # register face image with identified data at third-party
+                background_tasks.add_task(user_account_service.register_identity_with_service,
+                                          user_account=user,
+                                          images=user_account_service.get_filename_and_content_type_from_upload(
+                                              updated_images),
+                                          retry_count=0)
+
+            if deleted_images is not None and len(deleted_images) > 0:
+                for image_id in deleted_images:
+                    if image_id is not None:
+                        # fetch all images of deleted user
+                        deleted_image = db.get_one(models.UserImage, image_id)
+                        db.delete(deleted_image)
+                        user_account_service.delete_image(image_name=deleted_image.image)
 
             db.commit()
             db.refresh(user)
-
-            # register face image with identified data at third-party
-            background_tasks.add_task(register_identity_with_service, user_account=user,
-                                      images=user_account_service.get_filename_and_content_type_from_upload(images),
-                                      retry_count=0)
 
             return user
         except Exception as e:

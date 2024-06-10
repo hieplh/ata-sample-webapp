@@ -409,7 +409,7 @@ def route(app: FastAPI):
                                      expired_at=datetime.now() + timedelta(hours=24), attempts=1))
 
             # store images
-            await user_account_service.store_images(db, request.username, images)
+            user_account_service.store_image(db, request.username, images)
 
             db.commit()
 
