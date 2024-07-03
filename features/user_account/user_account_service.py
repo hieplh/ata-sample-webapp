@@ -21,13 +21,14 @@ path = "resources/images"
 
 
 def image_to_base64_png(image_path: str, image_type: str) -> str:
-    with Image.open(f"{path}/{image_path}") as img:
-        buffered = io.BytesIO()
-        img.save(buffered, format=image_type)
-        img_bytes = buffered.getvalue()
-
-    img_base64 = base64.b64encode(img_bytes).decode('utf-8')
-    return img_base64
+    # with Image.open(f"{path}/{image_path}") as img:
+    #     buffered = io.BytesIO()
+    #     img.save(buffered, format=image_type)
+    #     img_bytes = buffered.getvalue()
+    # img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+    # return img_base64
+    with open(f"{path}/{image_path}", "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
 
 
 def encrypt_password(password: str) -> str:
@@ -68,8 +69,7 @@ def get_filename_and_content_type_from_model(user_images: list[models.UserImage]
             for user_image in user_images] if len(user_images) else []
 
 
-def get_filename_and_content_type_from_upload(upload_images: list[UploadFile | dict[str, int | None]]) -> list[
-    tuple[str, str]]:
+def get_filename_and_content_type_from_upload(upload_images: list[UploadFile | dict[str, int | None]]) -> tuple[str, str]:
     result = []
     if upload_images is not None:
         for file in upload_images:
@@ -80,9 +80,28 @@ def get_filename_and_content_type_from_upload(upload_images: list[UploadFile | d
                 result.append((file.filename, file.content_type))
             elif isinstance(file, dict):
                 image = file["content"]
-                result.append((image["filename"], image["image_content_type"]))
+                result.append(
+                    (image["filename"], image["image_content_type"], file["service_image_id"], image["image_content"]))
 
     return result
+
+
+def get_identity_images_with_service(username: str, retry_count: int = 0):
+    try:
+        url = f"{os.getenv('FACE_HOST')}/service/face_recognize/images/{username}"
+        face_token = os.getenv("FACE_TOKEN")
+        headers = {"Authorization": f"Bearer {face_token}"}
+
+        response = (requests.get(url, headers=headers))
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"get_identity_images_with_service: {e}")
+        # retry make http call if failed, max 3 times
+        if retry_count < 1:
+            get_identity_images_with_service(username, retry_count + 1)
+        else:
+            return []
 
 
 def register_identity_with_service(user_account: models.UserAccount,
@@ -115,6 +134,38 @@ def register_identity_with_service(user_account: models.UserAccount,
                                         "content": json.dumps(data)}
                                   )
                     )
+        return response.json()
+    except Exception as e:
+        print(f"register_identity_with_service: {e}")
+        # retry make http call if failed, max 3 times
+        if retry_count < 1:
+            register_identity_with_service(user_account, images, retry_count + 1)
+        else:
+            raise e
+
+
+def update_identity_with_service(user_account: models.UserAccount,
+                                 images: list[tuple[str, str]],
+                                 retry_count: int = 0):
+    if len(images) == 0:
+        return
+
+    try:
+        url = f"{os.getenv('FACE_HOST')}/service/face_recognize/update"
+        face_token = os.getenv("FACE_TOKEN")
+        headers = {"Authorization": f"Bearer {face_token}", "Content-Type": "application/json"}
+
+        # init data content
+        images_payload = []
+        for image in images:
+            images_payload.append({"image_old_id": image[2], "image_new_name": image[0], "image_new": image[3]})
+        payload = {"identification_id": user_account.username,
+                   "images": images_payload}
+
+        response = (requests.put(url,
+                                 headers=headers,
+                                 json=payload
+                                 ))
         return response.json()
     except Exception as e:
         print(f"register_identity_with_service: {e}")
@@ -205,7 +256,7 @@ def store_image(dbConnection: Session, username: str, image=None):
                          image_type=image["image_content_type"]))
 
 
-def update_image(dbConnection: Session, id: int, image=None):
+def update_image(image=None):
     if image is None:
         return
 

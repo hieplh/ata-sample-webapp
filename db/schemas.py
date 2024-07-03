@@ -56,6 +56,7 @@ class UserImage(BaseModel):
     image: str
     image_type: str
     created: datetime
+    service_image_id: int | None = None
 
 
 class UserToken(BaseModel):

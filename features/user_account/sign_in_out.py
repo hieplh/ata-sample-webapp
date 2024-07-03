@@ -39,7 +39,9 @@ def route(app: FastAPI):
                 # check if user is enabled 2 verification or not
                 # if enabled, return nothing, returned token will be depended on login_by_face
                 if user_account.enable_2_verification:
-                    return {}
+                    images_count = db.query(models.UserImage).filter(models.UserImage.username == user_account.username).count()
+                    if images_count > 0:
+                        return {}
 
                 # fetch current token if existed
                 user_token = db.query(UserToken).filter(UserToken.username == user.username,

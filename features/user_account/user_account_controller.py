@@ -18,6 +18,12 @@ from features.user_account.user_account_service import encrypt_password
 class UpdateUserImageRequest(BaseModel):
     id: int | None = None
     content: str
+    service_image_id: int | None = None
+
+
+class DeleteUserImageRequest(BaseModel):
+    id: int | None = None
+    service_image_id: int | None = None
 
 
 class UserAccount(BaseModel):
@@ -36,7 +42,7 @@ class UserAccount(BaseModel):
     identity_type: str | None = None
     enable_2_verification: bool | None = None
     updated_images: list[UpdateUserImageRequest] | None = None
-    deleted_images: list[int] | None = None
+    deleted_images: list[DeleteUserImageRequest] | None = None
 
 
 def route(app: FastAPI):
@@ -44,12 +50,24 @@ def route(app: FastAPI):
     async def me(current_user: Annotated[Token, Depends(validate_token)], db: Annotated[Session, Depends(get_db)]):
         return db.get_one(models.UserAccount, current_user.user_id)
 
+    @app.get("/user/images/count")
+    async def get_images(current_user: Annotated[Token, Depends(validate_token)], db: Annotated[Session, Depends(get_db)]):
+        return {"image_count": db.query(models.UserImage).filter(models.UserImage.username == current_user.username).count()}
+
     @app.get("/user/images", response_model=list[schemas.UserImage])
     async def get_images(current_user: Annotated[Token, Depends(validate_token)],
                          db: Annotated[Session, Depends(get_db)]):
+        # fetch images from provider
+        service_images = user_account_service.get_identity_images_with_service(current_user.username)
+
         user_images = db.query(models.UserImage).filter(models.UserImage.username == current_user.username).all()
         for user_image in user_images:
             user_image.image = user_account_service.image_to_base64_png(user_image.image, user_image.image_type)
+            if service_images is not None:
+                for service_image in service_images:
+                    if service_image.get("image") == user_image.image:
+                        user_image.service_image_id = service_image.get("id")
+
         return user_images
 
     @app.get("/user/{data}", response_model=schemas.UserAccount | None)
@@ -90,7 +108,8 @@ def route(app: FastAPI):
                         "id": image.id,
                         "content": user_account_service.extract_based64_encoded_image(
                             current_user.username,
-                            image.content)
+                            image.content),
+                        "service_image_id": image.service_image_id
                     }
                     for
                     image in updated_images]
@@ -99,24 +118,35 @@ def route(app: FastAPI):
                     if image["id"] is not None:
                         user_image = db.get_one(models.UserImage, image["id"])
                         image["content"]["filename"] = user_image.image
-                        user_account_service.update_image(db, image["id"], image["content"])
+                        user_account_service.update_image(image["content"])
                     else:
                         user_account_service.store_image(db, current_user.username, image["content"])
 
-                # register face image with identified data at third-party
-                background_tasks.add_task(user_account_service.register_identity_with_service,
+                # update face image with identified data at third-party
+                background_tasks.add_task(user_account_service.update_identity_with_service,
                                           user_account=user,
                                           images=user_account_service.get_filename_and_content_type_from_upload(
                                               updated_images),
                                           retry_count=0)
+                # user_account_service.update_identity_with_service(user_account=user, images=user_account_service.get_filename_and_content_type_from_upload(updated_images), retry_count=0)
 
             if deleted_images is not None and len(deleted_images) > 0:
-                for image_id in deleted_images:
-                    if image_id is not None:
+                for image in deleted_images:
+                    if image is not None:
                         # fetch all images of deleted user
-                        deleted_image = db.get_one(models.UserImage, image_id)
+                        deleted_image = db.get_one(models.UserImage, image.id)
                         db.delete(deleted_image)
                         user_account_service.delete_image(image_name=deleted_image.image)
+
+                # delete face image with identified data at third-party
+                deleted_service_images = []
+                for image in deleted_images:
+                    deleted_service_images.append((None, None, image.service_image_id, None))
+                background_tasks.add_task(user_account_service.update_identity_with_service,
+                                          user_account=user,
+                                          images=deleted_service_images,
+                                          retry_count=0)
+                # user_account_service.update_identity_with_service(user_account = user, images = deleted_images, retry_count = 0)
 
             db.commit()
             db.refresh(user)
