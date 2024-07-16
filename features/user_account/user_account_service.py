@@ -1,5 +1,4 @@
 import base64
-import io
 import json
 import os
 import random
@@ -10,7 +9,6 @@ from email.mime.text import MIMEText
 
 import bcrypt
 import requests
-from PIL import Image
 from fastapi import UploadFile
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
@@ -21,12 +19,6 @@ path = "resources/images"
 
 
 def image_to_base64_png(image_path: str, image_type: str) -> str:
-    # with Image.open(f"{path}/{image_path}") as img:
-    #     buffered = io.BytesIO()
-    #     img.save(buffered, format=image_type)
-    #     img_bytes = buffered.getvalue()
-    # img_base64 = base64.b64encode(img_bytes).decode('utf-8')
-    # return img_base64
     with open(f"{path}/{image_path}", "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
@@ -59,7 +51,10 @@ def extract_based64_encoded_images(username: str, encoded_images: list[str]):
         return []
 
     images = []
-    return [images.append(extract_based64_encoded_image(username, image)) for image in encoded_images]
+    for image in encoded_images:
+        images.append(extract_based64_encoded_image(username, image))
+
+    return images
 
 
 def get_filename_and_content_type_from_model(user_images: list[models.UserImage]) -> list[tuple[str, str]]:
@@ -69,7 +64,7 @@ def get_filename_and_content_type_from_model(user_images: list[models.UserImage]
             for user_image in user_images] if len(user_images) else []
 
 
-def get_filename_and_content_type_from_upload(upload_images: list[UploadFile | dict[str, int | None]]) -> tuple[str, str]:
+def get_filename_and_content_type_from_upload(upload_images: list[UploadFile | dict[str, int | None]]):
     result = []
     if upload_images is not None:
         for file in upload_images:
@@ -256,6 +251,14 @@ def store_image(dbConnection: Session, username: str, image=None):
                          image_type=image["image_content_type"]))
 
 
+def store_images(dbConnection: Session, username: str, images: list | None = None):
+    if images is None or len(images) == 0:
+        return
+
+    for image in images:
+        store_image(dbConnection, username, image)
+
+
 def update_image(image=None):
     if image is None:
         return
@@ -300,8 +303,8 @@ def confirm_registration(user_username: str, otp: int, receiver_email: str, subj
 
     # Add body to email
     body = (body.replace("{{user_mail}}", receiver_email)
-            .replace("{{host}}", "localhost")
-            .replace("{{port}}", os.getenv("PORT"))
+            .replace("{{host}}", os.getenv("FE_HOST"))
+            .replace("{{port}}", os.getenv("FE_PORT"))
             .replace("{{user_username}}", user_username)
             .replace("{{user_otp}}", str(otp)))
     message.attach(MIMEText(body, "html"))

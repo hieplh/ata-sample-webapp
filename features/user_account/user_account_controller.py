@@ -158,6 +158,7 @@ def route(app: FastAPI):
 
     @app.delete("/user/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete(current_user: Annotated[Token, Depends(validate_token)],
+                     background_tasks: BackgroundTasks,
                      db: Annotated[Session, Depends(get_db)],
                      user_id: int):
         try:
@@ -179,7 +180,7 @@ def route(app: FastAPI):
             for token in user_tokens:
                 db.delete(token)
 
-            await user_account_service.delete_identity_with_service(deleted_user)
+            background_tasks.add_task(user_account_service.delete_identity_with_service, user_account=deleted_user)
 
             db.commit()
             return {"message": "User is deleted"}

@@ -199,7 +199,7 @@ mail_body = """
                                 bgcolor="#00b08c"
                               >
                                 <a
-                                  href="http://{{host}}:{{port}}/active_user/{{user_username}}/{{user_otp}}"
+                                  href="http://{{host}}:{{port}}/login/{{user_username}}/{{user_otp}}"
                                   style="
                                     color: #fff !important;
                                     display: block;
@@ -208,7 +208,6 @@ mail_body = """
                                     text-decoration: none;
                                   "
                                   target="_blank"
-                                  data-saferedirecturl="https://www.google.com/url?q=https://mt-link.mailtrap.io/cl/%2BddnirdWvk4nOHyUTk%252FP52QE82LQCGE%2BzVlCi75epLWRj28ZBzS9MHvp2kT%252FYXooyZFMpUDNBxngfWM%252F30wWvcF5SQJoKI0hGXeC3Cvk46Ye5aXWGz3i4rnwEG1gCOpx6VyUIz7MgP8MHq9tSOo8LvXi2ClteXnJGSsmszzkHk%252FU5vbh2ezh5AzlQ%2B4%252FBReSx60ikeE6iVY1xmTkgfIf%252FOubwbw7Lb2Yr3456jNEMUCdSoAbJAl%2BfRbnOT0yCnlLdgyH8Viqfdi6gYpWl99QtgH1Q1JqvGZnXpJ7OsXKOQ1bcS1QT1RngciOaoCwKMZ%252F5pft%252FqIfJ6E3wiRDhYwZypuTD1mU7R1vRvEn2ZVw%2BHZF8Unx%2BFKECHsF6YFUQas%3D--y0Nxhd%252FcQC1JcwVo--d%252FTrk49p%252FwMJiNGplWXpuQ%3D%3D&amp;source=gmail&amp;ust=1711426923877000&amp;usg=AOvVaw0Qddna-HrdkSGLwDEopiwd"
                                   >Confirm my account</a
                                 >
                               </td>
@@ -409,7 +408,10 @@ def route(app: FastAPI):
                                      expired_at=datetime.now() + timedelta(hours=24), attempts=1))
 
             # store images
-            user_account_service.store_image(db, request.username, images)
+            user_account_service.store_images(db,
+                                              request.username,
+                                              user_account_service.extract_based64_encoded_images(request.username, images)
+                                              )
 
             db.commit()
 
