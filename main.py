@@ -7,12 +7,14 @@ from fastapi.encoders import jsonable_encoder
 from starlette import status
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
+from utils import file_helper
 
 import router
 from db import models
 from db.database import engine
 
-load_dotenv()
+load_dotenv()                   # load config file
+file_helper.create_folder("")   # init folder resource/images
 
 models.Base.metadata.create_all(bind=engine)
 app = FastAPI()
