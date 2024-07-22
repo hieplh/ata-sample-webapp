@@ -193,7 +193,7 @@ async def delete_identity_with_service(user_account: models.UserAccount, retry_c
             raise e
 
 
-async def identity_with_service(username: str, image: UploadFile, retry_count: int = 0):
+async def identity_with_service(username: str, image: UploadFile):
     try:
         face_token = os.getenv("FACE_TOKEN")
         headers = jsonable_encoder(
@@ -216,11 +216,7 @@ async def identity_with_service(username: str, image: UploadFile, retry_count: i
         return None
     except Exception as e:
         print(f"identity_with_service: {e}")
-        # retry make http call if failed, max 3 times
-        if retry_count < 1:
-            await identity_with_service(image, retry_count + 1)
-        else:
-            raise e
+        raise e
 
 
 def delete_image(fullpath_image: str | None = None, image_name: str | None = None):

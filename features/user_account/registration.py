@@ -495,8 +495,7 @@ def route(app: FastAPI):
                 # register face image with identified data at third-party
                 background_tasks.add_task(register_identity_with_service, user_account=user_account,
                                           images=user_account_service.get_filename_and_content_type_from_model(
-                                              user_images),
-                                          retry_count=0)
+                                              user_images))
 
                 return {"message": "Activated account successfully"}
         except Exception as e:
